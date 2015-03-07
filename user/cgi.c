@@ -26,7 +26,7 @@ flash as a binary. Also handles the hit counter on the main page.
 
 //cause I can't be bothered to write an ioGetLed()
 static char currLedState=0;
-
+uint32_t postCounter = 0;
 //Cgi that turns the LED on or off according to the 'led' param in the POST data
 int ICACHE_FLASH_ATTR cgiLed(HttpdConnData *connData) {
 	int len;
@@ -50,9 +50,9 @@ int ICACHE_FLASH_ATTR cgiLed(HttpdConnData *connData) {
 
 
 //Template code for the led page.
-void ICACHE_FLASH_ATTR tplLed(HttpdConnData *connData, char *token, void **arg) {
+int ICACHE_FLASH_ATTR tplLed(HttpdConnData *connData, char *token, void **arg) {
 	char buff[128];
-	if (token==NULL) return;
+	if (token==NULL) return HTTPD_CGI_DONE;
 
 	os_strcpy(buff, "Unknown");
 	if (os_strcmp(token, "ledstate")==0) {
@@ -63,20 +63,22 @@ void ICACHE_FLASH_ATTR tplLed(HttpdConnData *connData, char *token, void **arg) 
 		}
 	}
 	httpdSend(connData, buff, -1);
+	return HTTPD_CGI_DONE;
 }
 
 static long hitCounter=0;
 
 //Template code for the counter on the index page.
-void ICACHE_FLASH_ATTR tplCounter(HttpdConnData *connData, char *token, void **arg) {
+int ICACHE_FLASH_ATTR tplCounter(HttpdConnData *connData, char *token, void **arg) {
 	char buff[128];
-	if (token==NULL) return;
+	if (token==NULL) return HTTPD_CGI_DONE;
 
 	if (os_strcmp(token, "counter")==0) {
 		hitCounter++;
 		os_sprintf(buff, "%ld", hitCounter);
 	}
 	httpdSend(connData, buff, -1);
+	return HTTPD_CGI_DONE;
 }
 
 
@@ -102,3 +104,20 @@ int ICACHE_FLASH_ATTR cgiReadFlash(HttpdConnData *connData) {
 	if (*pos>=0x40200000+(512*1024)) return HTTPD_CGI_DONE; else return HTTPD_CGI_MORE;
 }
 
+int ICACHE_FLASH_ATTR cgiUploadFlash(HttpdConnData *connData) {
+	int *pos=(int *)&connData->cgiData;
+	char *pbuff =(char *)&connData->postBuff;
+	if (connData->conn==NULL) {
+		//Connection aborted. Clean up.
+		return HTTPD_CGI_DONE;
+	}
+	// Count bytes for data
+	postCounter = postCounter + sizeof(pbuff);//connData->postBuff);
+	os_printf("Receieved %d bytes of %d (%d B chunk)\n", postCounter, connData->postLen, sizeof(pbuff));//&connData->postBuff));
+	if (postCounter == connData->postLen){
+		httpdSend(connData, "Yay! You finished uploading!!!!", -1);
+		return HTTPD_CGI_DONE;
+	} else {
+		return HTTPD_CGI_MORE;
+	}
+}
