@@ -112,10 +112,10 @@ int ICACHE_FLASH_ATTR cgiUploadFlash(HttpdConnData *connData) {
 		return HTTPD_CGI_DONE;
 	}
 	// Count bytes for data
-	postCounter = postCounter + sizeof(pbuff);//connData->postBuff);
-	os_printf("Receieved %d bytes of %d (%d B chunk)\n", postCounter, connData->postLen, sizeof(pbuff));//&connData->postBuff));
+	postCounter = postCounter + connData->postChunkSize;//connData->postBuff);
+	os_printf("Receieved %d bytes of %d (%d B chunk)\n", postCounter, connData->postLen, connData->postChunkSize);//&connData->postBuff));
 	if (postCounter == connData->postLen){
-		httpdSend(connData, "Yay! You finished uploading!!!!", -1);
+		httpdSend(connData, "Finished uploading", -1);
 		return HTTPD_CGI_DONE;
 	} else {
 		return HTTPD_CGI_MORE;
