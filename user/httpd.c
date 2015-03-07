@@ -45,6 +45,8 @@ struct HttpdPriv {
 	int postPos;
 	char *sendBuff;
 	int sendBuffLen;
+	int postBuffIdx;
+	int status;
 };
 
 //Connection pool
@@ -289,7 +291,6 @@ static const char *httpNotFoundHeader="HTTP/1.0 404 Not Found\r\nServer: esp8266
 //the result headers and data.
 static void ICACHE_FLASH_ATTR httpdSendResp(HttpdConnData *conn) {
 	int i=0;
-	int r;
 	//See if the url is somewhere in our internal url table.
 	while (builtInUrls[i].url!=NULL && conn->url!=NULL) {
 		int match=0;
@@ -302,9 +303,9 @@ static void ICACHE_FLASH_ATTR httpdSendResp(HttpdConnData *conn) {
 			conn->cgiData=NULL;
 			conn->cgi=builtInUrls[i].cgiCb;
 			conn->cgiArg=builtInUrls[i].cgiArg;
-			r=conn->cgi(conn);
-			if (r!=HTTPD_CGI_NOTFOUND) {
-				if (r==HTTPD_CGI_DONE) conn->cgi=NULL;  //If cgi finishes immediately: mark conn for destruction.
+			conn->priv->status=conn->cgi(conn);
+			if (conn->priv->status!=HTTPD_CGI_NOTFOUND) {
+				if (conn->priv->status==HTTPD_CGI_DONE) conn->cgi=NULL;  //If cgi finishes immediately: mark conn for destruction.
 				return;
 			}
 		}
@@ -349,11 +350,11 @@ static void ICACHE_FLASH_ATTR httpdParseHeader(char *h, HttpdConnData *conn) {
 		while (h[i]!=' ') i++;
 		//Get POST data length
 		conn->postLen=atoi(h+i+1);
-		//Clamp if too big. Hmm, maybe we should error out instead?
-		if (conn->postLen>MAX_POST) conn->postLen=MAX_POST;
-		os_printf("Mallocced buffer for %d bytes of post data.\n", conn->postLen);
-		//Alloc the memory.
-		conn->postBuff=(char*)os_malloc(conn->postLen+1);
+		int buffSize = 0;
+		// Only dim to MAX_POST if we have large data, otherwise, save the memory
+		buffSize = (conn->postLen>MAX_POST) ? MAX_POST : conn->postLen;
+		conn->postBuff=(char*)os_malloc(buffSize + 1);
+		os_printf("Mallocced buffer for %d bytes of post data.\n", buffSize);
 		conn->priv->postPos=0;
 	}
 }
@@ -392,23 +393,37 @@ static void ICACHE_FLASH_ATTR httpdRecvCb(void *arg, char *data, unsigned short 
 				//If we don't need to receive post data, we can send the response now.
 				if (conn->postLen==0) {
 					httpdSendResp(conn);
+					conn->priv->postPos=-1;
 				}
 			}
 		} else if (conn->priv->postPos!=-1 && conn->postLen!=0 && conn->priv->postPos <= conn->postLen) {
+			// Init postBuff
+			if (conn->priv->postBuffIdx == 0){
+				conn->postChunkSize = ((conn->postLen - conn->priv->postPos) > MAX_POST) ? MAX_POST : (conn->postLen - conn->priv->postPos);
+			}
+			os_printf(".");
+			if (conn->priv->postBuffIdx % 256 == 0){
+				os_printf("\r%d (%d): ", conn->priv->postBuffIdx, conn->postChunkSize);
+			}
 			//This byte is a POST byte.
-			conn->postBuff[conn->priv->postPos++]=data[x];
-			if (conn->priv->postPos>=conn->postLen) {
-				//Received post stuff.
-				conn->postBuff[conn->priv->postPos]=0; //zero-terminate
-				conn->priv->postPos=-1;
-				os_printf("Post data: %s\n", conn->postBuff);
-				//Send the response.
+			conn->postBuff[conn->priv->postBuffIdx++]=data[x];
+			conn->priv->postPos++;
+			if (conn->priv->postBuffIdx>=conn->postChunkSize) {
+				// Fuck it.  Zero padding this data will allow str functions but binary data just needs to be read by len
+				conn->postBuff[conn->priv->postBuffIdx] = 0;
+				os_printf("\nProcessing chunk of %d data from %d total (offset %d)\n", conn->postChunkSize, conn->postLen, conn->priv->postPos - conn->postChunkSize);
 				httpdSendResp(conn);
-				break;
+				if (conn->priv->status > 0){
+					conn->priv->postPos=-1;
+					break;
+				}
+				conn->priv->postBuffIdx=0;
 			}
 		}
 	}
-	xmitSendBuff(conn);
+	if (conn->priv->postPos==-1 || conn->priv->status == HTTPD_CGI_DONE){
+		xmitSendBuff(conn);
+	}
 }
 
 static void ICACHE_FLASH_ATTR httpdReconCb(void *arg, sint8 err) {
@@ -463,6 +478,9 @@ static void ICACHE_FLASH_ATTR httpdConnectCb(void *arg) {
 	connData[i].postBuff=NULL;
 	connData[i].priv->postPos=0;
 	connData[i].postLen=-1;
+        connData[i].priv->postBuffIdx=0;
+        connData[i].priv->status=0;
+	connData[i].postChunkSize=0;
 
 	espconn_regist_recvcb(conn, httpdRecvCb);
 	espconn_regist_reconcb(conn, httpdReconCb);
