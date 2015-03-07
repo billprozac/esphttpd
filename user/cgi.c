@@ -105,17 +105,44 @@ int ICACHE_FLASH_ATTR cgiReadFlash(HttpdConnData *connData) {
 }
 
 int ICACHE_FLASH_ATTR cgiUploadFlash(HttpdConnData *connData) {
-	int *pos=(int *)&connData->cgiData;
-	char *pbuff =(char *)&connData->postBuff;
+	//int *pos=(int *)&connData->cgiData;
+	//char *pbuff =(char *)&connData->postBuff;
 	if (connData->conn==NULL) {
 		//Connection aborted. Clean up.
 		return HTTPD_CGI_DONE;
 	}
+	SpiFlashOpResult ret;
+	int x;
+	uint32_t flashOff = 0x41000;
+	uint32_t flashSize = 244;
+	//If this is the first time, erase the flash sector
+	if (postCounter == 0){
+		os_printf("Erasing flash at 0x%x...\n", flashOff);
+		// Which segment are we flashing?	
+		for (x=0; x<(flashSize/4); x+=4069){
+			spi_flash_erase_sector((flashOff+x)/0x1000);
+		}
+		os_printf("Done erasing.\n");
+	}
+	// Because we get sent 1k chunks until the end, if data is less than 1k, we pad it as it must be the end...right???
+	if (connData->postChunkSize==1024){
+		ret=spi_flash_write((flashOff + postCounter), (uint32 *)connData->postBuff, 1024);
+		os_printf("Flash return %d\n", ret);
+	} else {
+		char *postBuff = (char*)os_zalloc(1024);
+                os_printf("Mallocced buffer of 1024 bytes of last chunk.\n");
+		os_memcpy(postBuff, connData->postBuff, connData->postChunkSize);
+		ret=spi_flash_write((flashOff + postCounter), (uint32 *)postBuff, 1024);
+		os_printf("Flash return %d\n", ret);
+	}
 	// Count bytes for data
 	postCounter = postCounter + connData->postChunkSize;//connData->postBuff);
-	os_printf("Receieved %d bytes of %d (%d B chunk)\n", postCounter, connData->postLen, connData->postChunkSize);//&connData->postBuff));
+	os_printf("Wrote %d bytes (%dB of %d)\n", connData->postChunkSize, postCounter, connData->postLen);//&connData->postBuff));
+	// Buffer up a 4k page
+	
 	if (postCounter == connData->postLen){
 		httpdSend(connData, "Finished uploading", -1);
+		postCounter=0;
 		return HTTPD_CGI_DONE;
 	} else {
 		return HTTPD_CGI_MORE;
