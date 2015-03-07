@@ -52,6 +52,7 @@ should be placed above the URLs they protect.
 HttpdBuiltInUrl builtInUrls[]={
 	{"/", cgiRedirect, "/index.tpl"},
 	{"/flash.bin", cgiReadFlash, NULL},
+	{"/upload.cgi", cgiUploadFlash, NULL},
 	{"/led.tpl", cgiEspFsTemplate, tplLed},
 	{"/index.tpl", cgiEspFsTemplate, tplCounter},
 	{"/led.cgi", cgiLed, NULL},
@@ -78,5 +79,6 @@ void user_init(void) {
 	stdoutInit();
 	ioInit();
 	httpdInit(builtInUrls, 80);
+	os_printf("\n\nBoot Complete.  System id(%d).  Boot mode %d\n\n", system_get_chip_id(), system_upgrade_userbin_check());
 	os_printf("\nReady\n");
 }
