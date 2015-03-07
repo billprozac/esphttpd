@@ -102,6 +102,10 @@ void ICACHE_FLASH_ATTR memcpyAligned(char *dst, char *src, int len) {
 EspFsFile ICACHE_FLASH_ATTR *espFsOpen(char *fileName) {
 #ifdef __ets__
 	char *p=(char *)(ESPFS_POS+0x40200000);
+	// If booted into memory #2, use webmemory #2
+	if (system_upgrade_userbin_check() == 1){
+		char *p=(char *)(ESPFS_POS2+0x40200000);
+	}
 #else
 	char *p=espFsData;
 #endif
