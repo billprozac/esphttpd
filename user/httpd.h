@@ -26,6 +26,7 @@ struct HttpdConnData {
 	HttpdPriv *priv;
 	cgiSendCallback cgi;
 	int postLen;
+	int postChunkSize;
 	char *postBuff;
 };
 
