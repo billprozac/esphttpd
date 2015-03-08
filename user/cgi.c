@@ -129,10 +129,10 @@ int ICACHE_FLASH_ATTR cgiUploadFlash(HttpdConnData *connData) {
 		ret=spi_flash_write((flashOff + postCounter), (uint32 *)connData->postBuff, 1024);
 		os_printf("Flash return %d\n", ret);
 	} else {
-		char *postBuff = (char*)os_zalloc(1024);
-                os_printf("Mallocced buffer of 1024 bytes of last chunk.\n");
-		os_memcpy(postBuff, connData->postBuff, connData->postChunkSize);
-		ret=spi_flash_write((flashOff + postCounter), (uint32 *)postBuff, 1024);
+		//char *postBuff = (char*)os_zalloc(1024);
+                //os_printf("Mallocced buffer of 1024 bytes of last chunk.\n");
+		//os_memcpy(postBuff, connData->postBuff, connData->postChunkSize);
+		ret=spi_flash_write((flashOff + postCounter), (uint32 *)connData->postBuff, connData->postChunkSize);
 		os_printf("Flash return %d\n", ret);
 	}
 	// Count bytes for data
