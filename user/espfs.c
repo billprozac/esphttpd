@@ -26,6 +26,7 @@ It's written for use with httpd, but doesn't need to be used as such.
 #include "mem.h"
 #include "osapi.h"
 #include "espmissingincludes.h"
+#include "flash.h"
 #else
 //Test build
 #include <stdio.h>
@@ -101,11 +102,14 @@ void ICACHE_FLASH_ATTR memcpyAligned(char *dst, char *src, int len) {
 //Open a file and return a pointer to the file desc struct.
 EspFsFile ICACHE_FLASH_ATTR *espFsOpen(char *fileName) {
 #ifdef __ets__
-	char *p=(char *)(ESPFS_POS+0x40200000);
-	// If booted into memory #2, use webmemory #2
-	if (system_upgrade_userbin_check() == 1){
-		char *p=(char *)(ESPFS_POS2+0x40200000);
+	int ESPFS_POS;
+	// Non-OTA will still return 0 for the userbin_check
+	if (system_upgrade_userbin_check() == 0) {
+		ESPFS_POS = partition[ESPFS_PART].offset;
+	}else{
+		ESPFS_POS = partition[ESPFS_PART2].offset;
 	}
+	char *p=(char *)(ESPFS_POS+0x40200000);
 #else
 	char *p=espFsData;
 #endif
@@ -122,6 +126,7 @@ EspFsFile ICACHE_FLASH_ATTR *espFsOpen(char *fileName) {
 		os_memcpy(&h, p, sizeof(EspFsHeader));
 		if (h.magic!=0x73665345) {
 			os_printf("Magic mismatch. EspFS image broken.\n");
+			os_printf("Got 0x%x", h.magic);
 			return NULL;
 		}
 		if (h.flags&FLAG_LASTFILE) {
