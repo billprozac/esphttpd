@@ -5,6 +5,7 @@
 //Pos of esp fs in flash
 #ifndef OTA
 #define ESPFS_PART 1
+#define ESPFS_PART2 1
 #else
 #define ESPFS_PART 4
 #define ESPFS_PART2 1
