@@ -3,11 +3,11 @@
 #define EFS_HEATSHRINK
 
 //Pos of esp fs in flash
-#ifndef ESPFS_POS
-#define ESPFS_POS 0x41000
-#endif
-#ifndef ESPFS_POS2
-#define ESPFS_POS2 0x01000
+#ifndef OTA
+#define ESPFS_PART 1
+#else
+#define ESPFS_PART 4
+#define ESPFS_PART2 1
 #endif
 
 //If you want, you can define a realm for the authentication system.
