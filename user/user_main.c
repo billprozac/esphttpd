@@ -18,6 +18,7 @@
 #include "httpdespfs.h"
 #include "cgi.h"
 #include "cgiwifi.h"
+#include "cgiflash.h"
 #include "stdout.h"
 #include "auth.h"
 
@@ -52,10 +53,12 @@ should be placed above the URLs they protect.
 HttpdBuiltInUrl builtInUrls[]={
 	{"/", cgiRedirect, "/index.tpl"},
 	{"/flash.bin", cgiReadFlash, NULL},
-	{"/upload.cgi", cgiUploadFlash, NULL},
 	{"/led.tpl", cgiEspFsTemplate, tplLed},
-	{"/index.tpl", cgiEspFsTemplate, tplCounter},
+	{"/index.tpl", cgiEspFsTemplate, tplMain},
 	{"/led.cgi", cgiLed, NULL},
+	{"/flashraw.cgi", cgiUploadRaw, NULL},
+	{"/flashapp.cgi", cgiUpgradeRaw, NULL},
+	{"/getappver.cgi", cgiGetAppVer, NULL},
 
 	//Routines to make the /wifi URL and everything beneath it work.
 
@@ -79,6 +82,6 @@ void user_init(void) {
 	stdoutInit();
 	ioInit();
 	httpdInit(builtInUrls, 80);
-	os_printf("\n\nBoot Complete.  System id(%d).  Boot mode %d\n\n", system_get_chip_id(), system_upgrade_userbin_check());
 	os_printf("\nReady\n");
+	os_printf("\nCurrent Boot Mode is: %d\n", system_upgrade_userbin_check());
 }
