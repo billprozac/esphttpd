@@ -34,7 +34,7 @@ ESP_SPI_SIZE	?= 0
 ESP_FLASH_MODE 	?= 0 
 ESP_FLASH_FREQ_DIV ?= 0
 
-ESP_IPADDRESS	?= 192.168.0.176
+ESP_IPADDRESS	?= 192.168.4.1
 
 #Esptool.py path and port
 ESPTOOL		?= esptool
@@ -52,7 +52,7 @@ ESPBAUD		?= 115200
 
 # name for the target project
 TARGET		= httpd
-
+OTA		?= true
 # Bootloader and defaults
 BLANK		= blank.bin
 
@@ -196,12 +196,12 @@ endif
 vpath %.c $(SRC_DIR)
 
 ifdef DEBUG
-  CFLAGS := $(CFLAGS) -DDEBUG_VERSION=$(DEBUG)
+CFLAGS := $(CFLAGS) -DDEBUG_VERSION=$(DEBUG)
 endif
 
-#ifdef OTA
+ifeq ("$(OTA)", "true")
 CFLAGS := $(CFLAGS) -DOTA
-#endif
+endif
 
 CFLAGS := $(CFLAGS) -DSDK_VERSION=\"$(SDK_VERSION)\"
 CFLAGS := $(CFLAGS) -DAPP_NAME=\"$(APP_NAME)\"
