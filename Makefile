@@ -8,6 +8,11 @@
 #
 # Output directors to store intermediate compiled files
 # relative to the project directory
+APP_NAME	= esphttpd
+APP_VERSION	= OTA_1.0
+
+SHELL := /bin/bash
+
 BUILD_BASE	= build
 FW_BASE		= firmware
 
@@ -20,38 +25,58 @@ SDK_EXTRA_LIBS ?= /opt/Espressif/arch/lib
 
 # base directory of the ESP8266 SDK package, absolute
 SDK_ROOT	?= /opt/Espressif/ESP8266_SDK/
-SDK_VERSION	?= 0.9.3
+SDK_VERSION	?= 1.0.0
 SDK_BASE	?= $(SDK_ROOT)esp_iot_sdk_v$(SDK_VERSION)/
 
 # Hardware info
 ESP_FLASH_SIZE	?= 512
-ESP_BOOT_VER	?= old
+ESP_SPI_SIZE	?= 0
+ESP_FLASH_MODE 	?= 0 
+ESP_FLASH_FREQ_DIV ?= 0
+
+ESP_IPADDRESS	?= 192.168.0.176
 
 #Esptool.py path and port
 ESPTOOL		?= esptool
 FW_TOOL		?= esptool
-JOIN_TOOL	?= tools/gen_flashbin.py
+# Needed for old bootloader/SDK versions
+JOIN_TOOL	?= gen_flashbin.py
+# Needed for new bootloader/SDK versions
+APPGEN_TOOL	?= gen_appbin.py
 ESPTOOLPY	?= esptool/esptool.py
 ESPPORT		?= /dev/ttyS1
+
 #ESPDELAY indicates seconds to wait between flashing the two binary images
 ESPDELAY	?= 3
 ESPBAUD		?= 115200
+
 # name for the target project
 TARGET		= httpd
+
+# Bootloader and defaults
 BLANK		= blank.bin
-BOOTLOADER	= boot_v1.1.bin
+
+ESP_BOOT_VER	?= new
+
 ifeq ("$(SDK_VERSION)","0.9.3")
 ESP_BOOT_VER	= old
+BOOTLOADER	?= boot_v1.1.bin
 endif
 ifeq ("$(ESP_BOOT_VER)","new")
-ifeq ("$(SDK_VERSION)","0.9.5")
-BOOTLOADER      = boot_v1.2.bin
+ifeq ("$(SDK_VERSION)","1.0.0")
+BOOTLOADER      ?= boot_v1.3\(b3\).bin
+else
+BOOTLOADER      ?= boot_v1.2.bin
 endif
-ifeq ("$(SDK_VERSION)","0.9.6")
-BOOTLOADER      = boot_v1.3(b3).bin
-endif
+else
+BOOTLOADER	?= boot_v1.1.bin
 endif
 
+ifeq ("$(ESP_BOOT_VER)","new")
+BOOT_MODE = 2
+else
+BOOT_MODE = 1
+endif
 
 # which modules (subdirectories) of the project to include in compiling
 #MODULES		= driver user lwip/api lwip/app lwip/core lwip/core/ipv4 lwip/netif
@@ -80,13 +105,13 @@ LD_SCRIPT2      = eagle.app.v6.app2.ld
 else
 LD_SCRIPT1      = eagle.app.v6.$(ESP_BOOT_VER).$(ESP_FLASH_SIZE).app1.ld
 LD_SCRIPT2      = eagle.app.v6.$(ESP_BOOT_VER).$(ESP_FLASH_SIZE).app2.ld
-BOOTLOADER	= 
 endif
 # various paths from the SDK used in this project
 SDK_LIBDIR	= lib
 SDK_LDDIR	= ld
 SDK_INCDIR	= include include/json
 SDK_BIN		= bin
+SDK_TOOLSDIR	= tools
 
 # we create two different files for uploading into the flash
 # these are the names and options to generate them
@@ -94,28 +119,31 @@ FW_FILE_1	= 0x00000
 FW_FILE_1_ARGS	= -bo $@ -bs .text -bs .data -bs .rodata -bc -ec
 FW_FILE_2	= 0x40000
 FW_FILE_2_ARGS	= -es .irom0.text $@ -ec
-FW_FILE_3	= user1
-FW_FILE_4	= user2
+OTA_FW_FILE_1	= user1
+OTA_FW_FILE_2	= user2
+WEB_FW_FILE	= website
 
 #Intermediate files for User1.bin and User2.bin
-FW_INTF_1	= 0x01000
-FW_INTF_1_ARGS	= -bo $@ -bs .text -bs .data -bs .rodata -bc -ec
+FW_PT_1_OFF	= 0x00000
+#OTA_FW_1_PT_1	= 0x01000
+OTA_FW_1_PT_1_ARGS= -bo $(FW_PT_1) -bs .text -bs .data -bs .rodata -bc -ec
 
-FW_INTF_2	= 0x11000
-FW_INTF_2_ARGS	= -es .irom0.text $@ -ec
+FW_PT_2_OFF	= 0x40000
+OTA_FW_1_PT_2	= 0x11000
+OTA_FW_1_PT_2_ARGS= -es .irom0.text $(FW_PT_2) -ec
 
-FW_INTF_3	= 0x41000
-FW_INTF_3_ARGS	= -bo $@ -bs .text -bs .data -bs .rodata -bc -ec
+OTA_FW_2_PT_1	= 0x41000
+OTA_FW_2_PT_1_ARGS= -bo $(OTA_FW_2_PT_1) -bs .text -bs .data -bs .rodata -bc -ec
 
-FW_INTF_4	= 0x51000
-FW_INTF_4_ARGS	= -es .irom0.text $@ -ec
+OTA_FW_2_PT_2	= 0x51000
+OTA_FW_2_PT_2_ARGS= -es .irom0.text $(OTA_FW_2_PT_2) -ec
 
 
 # select which tools to use as compiler, librarian and linker
 CC		:= $(XTENSA_TOOLS_ROOT)/xtensa-lx106-elf-gcc
 AR		:= $(XTENSA_TOOLS_ROOT)/xtensa-lx106-elf-ar
 LD		:= $(XTENSA_TOOLS_ROOT)/xtensa-lx106-elf-gcc
-
+OBJCOPY		:= $(XTENSA_TOOLS_ROOT)/xtensa-lx106-elf-objcopy
 
 
 ####
@@ -123,7 +151,7 @@ LD		:= $(XTENSA_TOOLS_ROOT)/xtensa-lx106-elf-gcc
 ####
 SRC_DIR		:= $(MODULES)
 BUILD_DIR	:= $(addprefix $(BUILD_BASE)/,$(MODULES))
-
+SDK_TOOLS	:= $(addprefix $(SDK_BASE)/,$(SDK_TOOLSDIR))
 SDK_LIBDIR	:= $(addprefix $(SDK_BASE)/,$(SDK_LIBDIR))
 SDK_INCDIR	:= $(addprefix -I$(SDK_BASE)/,$(SDK_INCDIR))
 SDK_BIN		:= $(addprefix $(SDK_BASE)/,$(SDK_BIN))
@@ -135,9 +163,10 @@ TARGET_OUT	:= $(addprefix $(BUILD_BASE)/,$(TARGET).out)
 BOOTLOADER	:= $(addprefix $(SDK_BIN)/,$(BOOTLOADER))
 BLANK		:= $(addprefix $(SDK_BIN)/,$(BLANK))
 
-JOIN_TOOL	:= $(addprefix $(SDK_BASE)/,$(JOIN_TOOL))
+JOIN_TOOL	:= $(addprefix $(SDK_TOOLS)/,$(JOIN_TOOL))
+APPGEN_TOOL	:= $(addprefix $(SDK_TOOLS)/,$(APPGEN_TOOL))
 ESPTOOLPY	:= $(addprefix $(SDK_ROOT)/,$(ESPTOOLPY))
-
+ESPTOOLPYARGS	?= -o $(addprefix $(BUILD_BASE)/,$(TARGET).out-)
 LD_SCRIPT	:= $(addprefix -T$(SDK_BASE)/$(SDK_LDDIR)/,$(LD_SCRIPT))
 LD_SCRIPT1	:= $(addprefix -T$(SDK_BASE)/$(SDK_LDDIR)/,$(LD_SCRIPT1))
 LD_SCRIPT2	:= $(addprefix -T$(SDK_BASE)/$(SDK_LDDIR)/,$(LD_SCRIPT2))
@@ -148,14 +177,12 @@ MODULE_INCDIR	:= $(addsuffix /include,$(INCDIR))
 
 FW_FILE_1	:= $(addprefix $(FW_BASE)/,$(FW_FILE_1).bin)
 FW_FILE_2	:= $(addprefix $(FW_BASE)/,$(FW_FILE_2).bin)
-FW_FILE_3	:= $(addprefix $(FW_BASE)/,$(FW_FILE_3).bin)
-FW_FILE_4	:= $(addprefix $(FW_BASE)/,$(FW_FILE_4).bin)
+OTA_FW_FILE_1	:= $(addprefix $(FW_BASE)/,$(OTA_FW_FILE_1).$(ESP_BOOT_VER).bin)
+OTA_FW_FILE_2	:= $(addprefix $(FW_BASE)/,$(OTA_FW_FILE_2).$(ESP_BOOT_VER).bin)
+WEB_FW_FILE	:= $(addprefix $(FW_BASE)/,$(WEB_FW_FILE).espfs)
 
-FW_INTF_1	:= $(addprefix $(BUILD_BASE)/,$(FW_INTF_1).bin)
-FW_INTF_2	:= $(addprefix $(BUILD_BASE)/,$(FW_INTF_2).bin)
-FW_INTF_3	:= $(addprefix $(BUILD_BASE)/,$(FW_INTF_3).bin)
-FW_INTF_4	:= $(addprefix $(BUILD_BASE)/,$(FW_INTF_4).bin)
-
+FW_PT_1		:= $(addprefix $(BUILD_BASE)/,$(TARGET).out-$(FW_PT_1_OFF).bin)
+FW_PT_2		:= $(addprefix $(BUILD_BASE)/,$(TARGET).out-$(FW_PT_2_OFF).bin)
 
 V ?= $(VERBOSE)
 ifeq ("$(V)","1")
@@ -172,6 +199,14 @@ ifdef DEBUG
   CFLAGS := $(CFLAGS) -DDEBUG_VERSION=$(DEBUG)
 endif
 
+#ifdef OTA
+CFLAGS := $(CFLAGS) -DOTA
+#endif
+
+CFLAGS := $(CFLAGS) -DSDK_VERSION=\"$(SDK_VERSION)\"
+CFLAGS := $(CFLAGS) -DAPP_NAME=\"$(APP_NAME)\"
+CFLAGS := $(CFLAGS) -DAPP_VERSION=\"$(APP_VERSION)\"
+
 define compile-objects
 $1/%.o: %.c
 	$(vecho) "CC $$<"
@@ -181,56 +216,64 @@ endef
 
 .PHONY: all checkdirs clean
 
-all: checkdirs $(TARGET_OUT) $(FW_FILE_1) $(FW_FILE_2) $(FW_FILE_3) $(FW_FILE_4)
+all: checkdirs $(TARGET_OUT) $(FW_FILE_1) $(FW_FILE_2) website
 
-website: webpages.espfs htmlflash 
+ifeq ("$(ESP_BOOT_VER)","new")
+$(OTA_FW_FILE_1): NEW_OTA_USER1
+$(OTA_FW_FILE_2): NEW_OTA_USER2
+else
+$(OTA_FW_FILE_1): OLD_OTA_USER1
+$(OTA_FW_FILE_2): OLD_OTA_USER2
+endif
 
-$(FW_FILE_1): $(TARGET_OUT)
+NEW_OTA_USER1: checkdirs $(TARGET_OUT)
+	@$(OBJCOPY) --only-section .text -O binary $(TARGET_OUT)1 eagle.app.v6.text.bin
+	@$(OBJCOPY) --only-section .data -O binary $(TARGET_OUT)1 eagle.app.v6.data.bin
+	@$(OBJCOPY) --only-section .rodata -O binary $(TARGET_OUT)1 eagle.app.v6.rodata.bin
+	@$(OBJCOPY) --only-section .irom0.text -O binary $(TARGET_OUT)1 eagle.app.v6.irom0text.bin
+	@python $(APPGEN_TOOL) $(TARGET_OUT)1 $(BOOT_MODE) $(ESP_FLASH_MODE) $(ESP_FLASH_FREQ_DIV) $(ESP_SPI_SIZE)
+	@rm -f eagle.app.v6.*
+	
+NEW_OTA_USER2: checkdirs $(TARGET_OUT)
+	@$(OBJCOPY) --only-section .text -O binary $(TARGET_OUT)2 eagle.app.v6.text.bin
+	@$(OBJCOPY) --only-section .data -O binary $(TARGET_OUT)2 eagle.app.v6.data.bin
+	@$(OBJCOPY) --only-section .rodata -O binary $(TARGET_OUT)2 eagle.app.v6.rodata.bin
+	@$(OBJCOPY) --only-section .irom0.text -O binary $(TARGET_OUT)2 eagle.app.v6.irom0text.bin
+	@python $(APPGEN_TOOL) $(TARGET_OUT)2 $(BOOT_MODE) $(ESP_FLASH_MODE) $(ESP_FLASH_FREQ_DIV) $(ESP_SPI_SIZE)
+	@rm -f eagle.app.v6.*
+
+OLD_OTA_USER1: checkdirs $(TARGET_OUT)
+	@$(ESPTOOLPY) elf2image $(ESPTOOLPYARGS) $(TARGET_OUT)1
+	@$(JOIN_TOOL) $(FW_PT_1) $(TARGET_OUT)-$(OTA_FW_1_PT_2).bin
+	
+OLD_OTA_USER2: checkdirs $(TARGET_OUT)
+	@$(ESPTOOLPY) elf2image $(ESPTOOLPYARGS) $(TARGET_OUT)2
+	@$(JOIN_TOOL) $(FW_PT_1) $(TARGET_OUT)-$(OTA_FW_2_PT_2).bin
+	
+$(FW_FILE_1): FW_FILES
 	$(vecho) "FW $@"
-	$(Q) $(ESPTOOL) -eo $(TARGET_OUT) $(FW_FILE_1_ARGS)
+	@mv $(FW_PT_1) $(FW_FILE_1)
 
-$(FW_FILE_2): $(TARGET_OUT)
+$(FW_FILE_2): FW_FILES
 	$(vecho) "FW $@"
-	$(Q) $(ESPTOOL) -eo $(TARGET_OUT) $(FW_FILE_2_ARGS)
+	@mv $(FW_PT_2) $(FW_FILE_2)
 
-$(FW_FILE_3): $(FW_INTF_1) $(FW_INTF_2)
-	@echo "FW $@"
-	@$(JOIN_TOOL) $(FW_INTF_1) $(FW_INTF_2)
+FW_FILES: checkdirs $(TARGET_OUT)
+	$(Q) $(ESPTOOLPY) elf2image $(TARGET_OUT)
+	
+$(OTA_FW_FILE_1):
+	$(vecho) "FW $@"
 	@mv eagle.app.flash.bin $@
 
-$(FW_FILE_4): $(FW_INTF_3) $(FW_INTF_4)
-	@echo "FW $@"
-	@$(JOIN_TOOL) $(FW_INTF_3) $(FW_INTF_4)
+$(OTA_FW_FILE_2):
+	$(vecho) "FW $@"
 	@mv eagle.app.flash.bin $@
-
-
-
-#Intermediate bin files for User1 and User2
-
-$(FW_INTF_1): $(TARGET_OUT)
-	@echo "FW $@"
-	@$(FW_TOOL) -eo $(TARGET_OUT)1 $(FW_INTF_1_ARGS)
-
-$(FW_INTF_2): $(TARGET_OUT)
-	@echo "FW $@"
-	@$(FW_TOOL) -eo $(TARGET_OUT)1 $(FW_INTF_2_ARGS)
-
-$(FW_INTF_3): $(TARGET_OUT)
-	@echo "FW $@"
-	@$(FW_TOOL) -eo $(TARGET_OUT)2 $(FW_INTF_3_ARGS)
-
-$(FW_INTF_4): $(TARGET_OUT)
-	@echo "FW $@"
-	@$(FW_TOOL) -eo $(TARGET_OUT)2 $(FW_INTF_4_ARGS)
-
-
 
 $(TARGET_OUT): $(APP_AR)
 	$(vecho) "LD $@"
 	$(Q) $(LD) -L$(SDK_LIBDIR) $(LD_SCRIPT) $(LDFLAGS) -Wl,--start-group $(LIBS) $(APP_AR) -Wl,--end-group -o $@
 	$(Q) $(LD) -L$(SDK_LIBDIR) $(LD_SCRIPT1) $(LDFLAGS) -Wl,--start-group $(LIBS) $(APP_AR) -Wl,--end-group -o $@1
 	$(Q) $(LD) -L$(SDK_LIBDIR) $(LD_SCRIPT2) $(LDFLAGS) -Wl,--start-group $(LIBS) $(APP_AR) -Wl,--end-group -o $@2
-
 
 $(APP_AR): $(OBJ)
 	$(vecho) "AR $@"
@@ -244,28 +287,37 @@ $(BUILD_DIR):
 firmware:
 	$(Q) mkdir -p $@
 
-flash: $(FW_FILE_1) $(FW_FILE_2)
+flash: $(FW_FILE_1) $(FW_FILE_2) website
 	echo "Running..."
-	$(ESPTOOLPY) --port $(ESPPORT) write_flash 0x00000 firmware/0x00000.bin 0x40000 firmware/0x40000.bin
-	#$(Q) $(ESPTOOL) -cp $(ESPPORT) -cb $(ESPBAUD) -ca 0x00000 -cf firmware/0x00000.bin -v
-	#$(Q) [ $(ESPDELAY) -ne 0 ] && echo "Please put the ESP in bootloader mode..." || true
-	#$(Q) sleep $(ESPDELAY) || true
-	#$(Q) $(ESPTOOL) -cp $(ESPPORT) -cb $(ESPBAUD) -ca 0x40000 -cf firmware/0x40000.bin -v
+	$(ESPTOOLPY) --baud $(ESPBAUD) --port $(ESPPORT) write_flash 0x00000 firmware/0x00000.bin 0x12000 $(WEB_FW_FILE) 0x40000 firmware/0x40000.bin
 
-cloud: $(FW_FILE_3) $(FW_FILE_4) webpages.espfs
-	echo "Running..."
-	$(ESPTOOLPY) --port $(ESPPORT) write_flash 0x00000 $(BOOTLOADER) 0x01000 firmware/user1.bin 0x41000 webpages.espfs 
+cloud: $(OTA_FW_FILE_1) $(OTA_FW_FILE_2) website
 
-webpages.espfs: html/ html/wifi/ mkespfsimage/mkespfsimage
-	cd html; find | ../mkespfsimage/mkespfsimage > ../webpages.espfs; cd ..
+flashcloud: cloud
+	$(ESPTOOLPY) --baud $(ESPBAUD) --port $(ESPPORT) write_flash 0x00000 $(BOOTLOADER) 0x01000 $(OTA_FW_FILE_1) 0x41000 $(WEB_FW_FILE) 
+	
+website: html/ html/wifi/ mkespfsimage/mkespfsimage
+	$(vecho) "Building website..."
+	$(Q) cd html; find | ../mkespfsimage/mkespfsimage > ../webpages.espfs; cd ..
+	@if [ $$(stat -c '%s' webpages.espfs) -gt $$(( 0x2E000 )) ]; then echo "webpages.espfs too big!"; false; fi
+	@mv webpages.espfs $(WEB_FW_FILE)
+
+rawflashhtml: website
+	$(vecho) "Flashinsh Web Application..."
+	$(Q) curl -i -X POST $(ESP_IPADDRESS)/flashraw.cgi --data-binary "@$(WEB_FW_FILE)"
+	
+rawflashapp: cloud
+	$(vecho) "Flashinsh OTA User Application..."
+	$(Q) if [ `curl -s http://192.168.0.176/getappver.cgi` -eq 1 ]; then \
+		curl -i -X POST $(ESP_IPADDRESS)/flashapp.cgi --data-binary "@$(OTA_FW_FILE_2)"; else \
+		curl -i -X POST $(ESP_IPADDRESS)/flashapp.cgi --data-binary "@$(OTA_FW_FILE_1)"; fi
+	@read -n1 -p "Wait for device to reboot, then press any key to continue..." key
+	@echo
+
+rawflash: rawflashapp rawflashhtml		
 
 mkespfsimage/mkespfsimage: mkespfsimage/
 	make -C mkespfsimage
-
-htmlflash: webpages.espfs
-	$(Q) if [ $$(stat -c '%s' webpages.espfs) -gt $$(( 0x2E000 )) ]; then echo "webpages.espfs too big!"; false; fi
-	$(ESPTOOLPY) --port $(ESPPORT) write_flash 0x12000 webpages.espfs
-	#$(ESPTOOL) -cp $(ESPPORT) -cb $(ESPBAUD) -ca 0x12000 -cf webpages.espfs -v
 
 clean:
 	$(Q) rm -f $(APP_AR)
