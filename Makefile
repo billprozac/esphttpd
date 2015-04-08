@@ -10,7 +10,7 @@
 # relative to the project directory
 APP_NAME	= esphttpd
 APP_VERSION	= OTA_1.0
-
+CURRVER 	= 0
 SHELL := /bin/bash
 
 BUILD_BASE	= build
@@ -203,6 +203,10 @@ ifeq ("$(OTA)", "true")
 CFLAGS := $(CFLAGS) -DOTA
 endif
 
+ifneq (,$findstring rawflash,$@)
+	CURRVER	=	$(shell curl -s $(ESP_IPADDRESS)/getappver.cgi)
+endif
+
 CFLAGS := $(CFLAGS) -DSDK_VERSION=\"$(SDK_VERSION)\"
 CFLAGS := $(CFLAGS) -DAPP_NAME=\"$(APP_NAME)\"
 CFLAGS := $(CFLAGS) -DAPP_VERSION=\"$(APP_VERSION)\"
@@ -303,18 +307,26 @@ website: html/ html/wifi/ mkespfsimage/mkespfsimage
 	@mv webpages.espfs $(WEB_FW_FILE)
 
 rawflashhtml: website
-	$(vecho) "Flashinsh Web Application..."
+	$(vecho) "Flashing Web Application..."
 	$(Q) curl -i -X POST $(ESP_IPADDRESS)/flashraw.cgi --data-binary "@$(WEB_FW_FILE)"
+	$(vecho)
 	
 rawflashapp: cloud
-	$(vecho) "Flashinsh OTA User Application..."
-	$(Q) if [ `curl -s http://192.168.0.176/getappver.cgi` -eq 1 ]; then \
+	$(vecho) -n "Flashing OTA User Application "
+	$(Q) if [ $(CURRVER) -eq 1 ]; then echo 2; else echo 1; fi
+	$(Q) if [ $(CURRVER) -eq 1 ]; then \
 		curl -i -X POST $(ESP_IPADDRESS)/flashapp.cgi --data-binary "@$(OTA_FW_FILE_2)"; else \
 		curl -i -X POST $(ESP_IPADDRESS)/flashapp.cgi --data-binary "@$(OTA_FW_FILE_1)"; fi
-	@read -n1 -p "Wait for device to reboot, then press any key to continue..." key
-	@echo
+	@sleep 2
+	$(vecho)
 
-rawflash: rawflashapp rawflashhtml		
+rawflashwait:
+	$(vecho) "Waiting for device to finish rebooting..."
+	$(Q) curl --connect-timeout 1000 -s $(ESP_IPADDRESS)/getappver.cgi
+	$(vecho)
+	
+rawflash: rawflashapp rawflashwait rawflashhtml
+	$(vecho) "Your device should be ready to go.  Enjoy!"
 
 mkespfsimage/mkespfsimage: mkespfsimage/
 	make -C mkespfsimage
